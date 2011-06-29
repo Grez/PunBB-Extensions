@@ -14,7 +14,7 @@
 <extension engine="1.0">
 	<id>modified_pun_quote</id>
 	<title>JS reply and quote</title>
-	<version>0.9</version>
+	<version>0.9.1</version>
 	<description>Reply to someone or select the text you want to quote right in the topic view. Click "Quote" for multiple quotes in quick reply form.</description>
 	<author>PunBB Development Team, modified by Grez</author>
 
@@ -82,7 +82,7 @@ if ($tid && isset($_GET['rid']))
 		<hook id="vt_row_new_post_entry_data"><![CDATA[
 			if (!$forum_user['is_guest'])
 			{
-				$pun_quote_js_arrays .= 'pun_quote_posts['.$cur_post['id'].'] = "'.str_replace("\n", '\n', forum_htmlencode($cur_post['message'])).'";';
+				$pun_quote_js_arrays .= 'pun_quote_posts['.$cur_post['id'].'] = "'.str_replace(array("\n", "\r"), array('\n', ''), forum_htmlencode($cur_post['message'])).'";';
 				$pun_quote_js_arrays .= ' pun_quote_authors['.$cur_post['id'].'] = "'.$cur_post['username'].'";'."\n";
 			}
 		]]></hook>
