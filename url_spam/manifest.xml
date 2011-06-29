@@ -1,0 +1,238 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE extension SYSTEM "ext-1.0.dtd">
+
+<!--
+/*
+	Copyright (C) 2010 Tom 'Grez' Bartoň & KeyDog
+	Released under GPL license version 3 or any later version <http://www.gnu.org/licenses/gpl.html>
+	
+	This extension is free software: you can redistribute it and/or modify
+	it under the terms of the GNU General Public License as published by
+	the Free Software Foundation, either version 3 of the License, or
+	(at your option) any later version.
+
+	This extension is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+	GNU General Public License for more details.
+
+	You should have received a copy of the GNU General Public License
+	along with this extension.  If not, see <http://www.gnu.org/licenses/>.
+	
+	ON DUPLICATE UPDATE? dblayer
+*/
+-->
+
+<extension engine="1.0">
+	<id>url_spam</id>
+	<title>Disallowing spammers urls</title>
+	<version>0.5.0</version>
+	<description>Disallows users to use urls that are used by spammers and delete users which try to use these urls if they have less then 5 posts.</description>
+	<author>Grez &amp; KeyDog</author>
+	<minversion>1.3.4</minversion>
+	<maxtestedon>1.3.4</maxtestedon>
+	<install>
+		<![CDATA[
+if (!$forum_db->table_exists('url_spam'))
+{
+	$schema = array(
+		'FIELDS'	=>	array(
+			'user_id'		=>	array(
+				'datatype'		=>	'int(7)',
+				'allow_null'	=>	false
+			),
+			'ip'		=>	array(
+				'datatype'		=>	'VARCHAR(15)',
+				'allow_null'	=>	false,
+				'default'		=>	'\'0.0.0.0\'',
+			),
+			'url'		=>	array(
+				'datatype'		=>	'VARCHAR(150)',
+				'allow_null'	=>	true,
+				'default'		=>	'\'\''
+			),
+			'time'		=>	array(
+				'datatype'		=>	'DATETIME',
+				'allow_null'	=>	false
+			),
+			'type'		=>	array(
+				'datatype'		=>	'VARCHAR(4)',
+				'allow_null'	=>	false
+			),
+		),
+		'PRIMARY KEY'	=>	array('url', 'type')
+	);
+	$forum_db->create_table('url_spam', $schema);
+}
+		]]>
+	</install>
+	
+	<uninstall>
+		<![CDATA[
+$forum_db->drop_table('url_spam');
+		]]>
+	</uninstall>
+	<hooks>
+	<hook id="po_end_validation"><![CDATA[
+if(!isset($_POST['preview'])) {
+
+	function urlcheck($url, &$errors, $text = "") {
+		global $ext_info, $forum_user, $forum_db, $forum_url;
+	
+		$query = 'http://www.keydogbb.info/url_spam.php?url='.urlencode($url);
+		$remote_file = get_remote_file($query, 3);
+		if($remote_file['content'] == "Y") {
+			if (file_exists($ext_info['path'].'/lang/'.$forum_user['language'].'/'.$ext_info['id'].'.php'))
+				include $ext_info['path'].'/lang/'.$forum_user['language'].'/'.$ext_info['id'].'.php';
+			else
+				include $ext_info['path'].'/lang/English/'.$ext_info['id'].'.php';
+
+			$query = array(
+				'SELECT'	=>	'url',
+				'FROM'		=>	'url_spam',
+				'WHERE'		=>	'url = \''.$url.'\' AND type = \'post\''
+			);
+			$result = $forum_db->query_build($query) or error(__FILE__, __LINE__);
+			if($forum_db->num_rows($result) == 0) {
+				$query = array(
+				   'INSERT'   => 'user_id, ip, url, time, type',
+				   'INTO'     => 'url_spam',
+				   'VALUES'   => '\''.$forum_user['id'].'\', \''.get_remote_address().'\', \''.$url.'\', NOW(), \'post\''
+				);
+				$forum_db->query_build($query) or error(__FILE__, __LINE__);
+			}
+			
+			if($forum_user['num_posts'] < 5 && $forum_user['group_id'] != 2) {
+				delete_user($forum_user['id'], true);
+				message($lang_url_spam['User deleted']);
+			} else {
+				$errors[] = sprintf($lang_url_spam['URL disallowed'], $url, $url);
+			}
+		} else {
+			$url = str_replace('"', '', $url);
+		}
+
+		if(!empty($text)) {
+			return '[url='.$url.']'.$text.'[/url]';
+		} else {
+			return '[url]'.$url.'[/url]';
+		}
+	}
+
+	$pattern = array();
+	$pattern[] = '#\[url\]([^\[]*?)\[/url\]#e';
+	$pattern[] = '#\[url=([^\[]+?)\](.*?)\[/url\]#e';
+
+	$replace = array();
+	$replace[] = 'urlcheck(\'$1\', $errors)';
+	$replace[] = 'urlcheck(\'$1\', $errors, \'$2\')';
+
+	$message = preg_replace($pattern, $replace, $message);
+
+}
+	]]></hook>
+	<hook id="pf_change_details_signature_validation"><![CDATA[
+	$pattern = array();
+	$pattern[] = '#\[url\]([^\[]*?)\[/url\]#e';
+	$pattern[] = '#\[url=([^\[]+?)\](.*?)\[/url\]#e';
+
+	$replace = array();
+	$replace[] = 'urlcheck(\'$1\', $errors)';
+	$replace[] = 'urlcheck(\'$1\', $errors, \'$2\')';
+
+	if ($forum_config['o_make_links'] == '1')
+	{
+		if (!defined('FORUM_PARSER_LOADED')) {
+			require FORUM_ROOT.'include/parser.php';
+		}
+		$_POST['signature'] = do_clickable($_POST['signature']);
+	}
+	
+	$_POST['signature'] = preg_replace($pattern, $replace, $_POST['signature']);
+
+	function urlcheck($url, &$errors, $text = "") {
+		global $ext_info, $forum_user, $forum_db, $forum_url;
+
+		$query = 'http://www.keydogbb.info/url_spam.php?url='.urlencode($url);
+		$remote_file = get_remote_file($query, 3);
+		if($remote_file['content'] == "Y") {
+			if (file_exists($ext_info['path'].'/lang/'.$forum_user['language'].'/'.$ext_info['id'].'.php'))
+				include $ext_info['path'].'/lang/'.$forum_user['language'].'/'.$ext_info['id'].'.php';
+			else
+				include $ext_info['path'].'/lang/English/'.$ext_info['id'].'.php';
+		
+			$query = array(
+				'SELECT'	=>	'url',
+				'FROM'		=>	'url_spam',
+				'WHERE'		=>	'url = \''.$url.'\' AND type = \'sig\''
+			);
+			$result = $forum_db->query_build($query) or error(__FILE__, __LINE__);
+			if($forum_db->num_rows($result) == 0) {
+				$query = array(
+				   'INSERT'   => 'user_id, ip, url, time, type',
+				   'INTO'     => 'url_spam',
+				   'VALUES'   => '\''.$forum_user['id'].'\', \''.get_remote_address().'\', \''.$url.'\', NOW(), \'sig\''
+				);
+				$forum_db->query_build($query) or error(__FILE__, __LINE__);
+			}
+			
+			if($forum_user['num_posts'] < 5 && $forum_user['group_id'] != 2) {
+				delete_user($forum_user['id'], true);
+				message($lang_url_spam['User deleted']);
+			} else {
+				$errors[] = sprintf($lang_url_spam['URL disallowed'], $url, $url);
+			}
+		} else {
+			$url = str_replace('"', '', $url);
+		}
+
+		if(!empty($text)) {
+			return '[url='.$url.']'.$text.'[/url]';
+		} else {
+			return '[url]'.$url.'[/url]';
+		}
+	}
+	]]></hook>
+	<hook id="ain_items_end"><![CDATA[
+	?>
+	<div class="ct-set group-item<?php echo ++$forum_page['item_count'] ?>">
+		<div class="ct-box">
+			<h3 class="ct-legend hn"><span>URL spam checker</span></h3>
+				<ul class="data-list">
+	 
+	<?php
+		$query = array(
+			'SELECT'    => 'us.user_id, u.username, us.ip, us.url, DATE_FORMAT(us.time, \'%Y-%m-%d\') AS date, us.type',
+			'FROM'        => 'url_spam AS us',
+			'JOINS'        => array(
+				array(
+					'LEFT JOIN'    => 'users AS u',
+					'ON'        => 'u.id = us.user_id',
+				),
+			),
+			'ORDER BY'    => 'time DESC',
+			'LIMIT'		=> '50',
+		);
+		$result = $forum_db->query_build($query) or error(__FILE__, __LINE__);
+		?>
+							<li><table>
+							<tr><th style="width: 100px;">User</th><th style="width: 70px;">IP</th><th style="width: 300px;">URL</th><th style="width: 70px;">Date</th><th style="width: 50px;">Type</th></tr>
+							<?php
+							while($spam = $forum_db->fetch_assoc($result)) {
+								echo "<tr>";
+									echo "<td>".((!empty($spam['username'])) ? "<a href=\"".forum_link($forum_url['user'], $spam['user_id'])."\">".forum_htmlencode($spam['username'])."</a>" : "DELETED")."</td>";
+									echo "<td>".$spam['ip']."</td>";
+									echo "<td><small>".$spam['url']."</small></td>";
+									echo "<td>".$spam['date']."</td>";
+									echo "<td>".$spam['type']."</td>";
+								echo "</tr>";
+							}
+							?>
+							</table>
+							<center><i>Last 25 entries. Ordered by date.</i></center></li>
+						</ul>
+					</div>
+				</div>
+	<?php
+	]]></hooks>
+</extension>

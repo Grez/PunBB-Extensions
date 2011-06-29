@@ -1,0 +1,428 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE extension SYSTEM "ext-1.0.dtd">
+
+<!--
+/*
+	Copyright (C) 2010 Tom 'Grez' Bartoň
+	Released under GPL license version 3 or any later version <http://www.gnu.org/licenses/gpl.html>
+	
+	This extension is free software: you can redistribute it and/or modify
+	it under the terms of the GNU General Public License as published by
+	the Free Software Foundation, either version 3 of the License, or
+	(at your option) any later version.
+
+	This extension is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+	GNU General Public License for more details.
+
+	You should have received a copy of the GNU General Public License
+	along with this extension.  If not, see <http://www.gnu.org/licenses/>.
+*/
+-->
+
+<extension engine="1.0">
+	<id>currency</id>
+	<title>Currency</title>
+	<version>1.0.0</version>
+	<description>Adds currency system for forum (money per post...)</description>
+	<author>Grez</author>
+
+	<minversion>1.3.4</minversion>
+	<maxtestedon>1.3.4</maxtestedon>
+
+	<install><![CDATA[
+$query = array(
+	'SELECT'	=>	'conf_name',
+	'FROM'		=>	'config',
+	'WHERE'		=>	'conf_name = \'o_currency_name\''
+);
+$result = $forum_db->query_build($query) or error(__FILE__, __LINE__);
+if($forum_db->num_rows($result) == 0) {
+	$query = array(
+		'INSERT'	=>	'conf_name, conf_value',
+		'INTO'		=>	'config',
+		'VALUES'	=>	'\'o_currency_name\', \'Money\'',
+	);
+	$forum_db->query_build($query) or error(__FILE__, __LINE__);
+}
+
+$query = array(
+	'SELECT'	=>	'conf_name',
+	'FROM'		=>	'config',
+	'WHERE'		=>	'conf_name = \'o_money_per_post\''
+);
+$result = $forum_db->query_build($query) or error(__FILE__, __LINE__);
+if($forum_db->num_rows($result) == 0) {
+	$query = array(
+		'INSERT'	=>	'conf_name, conf_value',
+		'INTO'		=>	'config',
+		'VALUES'	=>	'\'o_money_per_post\', 5',
+	);
+	$forum_db->query_build($query) or error(__FILE__, __LINE__);
+}
+
+$query = array(
+	'SELECT'	=>	'conf_name',
+	'FROM'		=>	'config',
+	'WHERE'		=>	'conf_name = \'o_money_per_reply\''
+);
+$result = $forum_db->query_build($query) or error(__FILE__, __LINE__);
+if($forum_db->num_rows($result) == 0) {
+	$query = array(
+		'INSERT'	=>	'conf_name, conf_value',
+		'INTO'		=>	'config',
+		'VALUES'	=>	'\'o_money_per_reply\', 1',
+	);
+	$forum_db->query_build($query) or error(__FILE__, __LINE__);
+}
+
+if(!$forum_db->field_exists('users', 'money')) {
+	$forum_db->add_field('users', 'money', 'int(11)', false);
+}
+
+if(!$forum_db->table_exists('transactions')) {
+	$schema = array(
+	'FIELDS'	=> array(
+			'id'	=>	array(
+				'datatype'		=>	'SERIAL',
+				'allow_null'	=>	false
+			),
+			'from_user'	=>	array(
+				'datatype'		=>	'INT(11)',
+				'allow_null'	=>	false
+			),
+			'to_user'	=>	array(
+				'datatype'		=>	'INT(11)',
+				'allow_null'	=>	false
+			),
+			'amount'	=>	array(
+				'datatype'		=>	'INT(11)',
+				'allow_null'	=>	false
+			),
+			'note'	=>	array(
+				'datatype'		=>	'VARCHAR(255)',
+				'allow_null'	=>	false
+			),
+			'date'	=>	array(
+				'datatype'		=>	'DATETIME',
+				'allow_null'	=>	false
+			)
+		),
+		'PRIMARY KEY'   => array('id')
+	);
+
+	$forum_db->create_table('transactions', $schema);
+}
+	]]></install>
+
+	<uninstall><![CDATA[
+$query = array(
+	'DELETE'	=>	'config',
+	'WHERE'		=>	'conf_name IN (\'o_currency_name\', \'o_money_per_post\', \'o_money_per_reply\')',
+);
+$forum_db->query_build($query) or error(__FILE__, __LINE__);
+
+$forum_db->drop_field('users', 'money');
+
+$forum_db->drop_table('transactions');
+	]]></uninstall>
+
+	<hooks>>
+		<hook id="vt_qr_get_posts"><![CDATA[
+			$query['SELECT'] .= ', u.money';
+		]]></hook>
+
+		<hook id="vt_row_pre_post_contacts_merge"><![CDATA[
+				$forum_page['author_info']['money'] = '<li><span>'.$forum_config['o_currency_name'].': <strong><a href="'.forum_link('profile.php?section=bank&id='.$forum_user['id'].'&username='.$cur_post['username']).'">'.$cur_post['money'].'</a></strong></span></li>';
+		]]></hook>
+
+		<hook id="fn_add_post_qr_add_post"><![CDATA[
+if(!$post_info['is_guest']) {
+	$q = array(
+		'UPDATE'	=>	'users',
+		'SET'			=>	'money=(money+'.$forum_config['o_money_per_post'].')',
+		'WHERE'		=>	'id = '.$post_info['poster_id'],
+);
+	$forum_db->query_build($q) or error(__FILE__, __LINE__);
+}
+
+	$q = array(
+		'UPDATE'	=>	'users AS u, '.$forum_db->prefix.'topics AS t',
+		'SET'			=>	'money=(money+'.$forum_config['o_money_per_reply'].')',
+		'WHERE'		=>	't.id = '.$post_info['topic_id'].' AND t.poster = u.username',
+);
+	$forum_db->query_build($q) or error(__FILE__, __LINE__);
+		]]></hook>
+
+		<hook id="fn_add_topic_end"><![CDATA[
+if(!$post_info['is_guest']) {
+	$conf['money per post'] = 5;
+	$query = array(
+		'UPDATE'	=>	'users',
+		'SET'			=>	'money=(money+'.$forum_config['o_money_per_post'].')',
+		'WHERE'		=>	'id = '.$post_info['poster_id'],
+);
+	$forum_db->query_build($query) or error(__FILE__, __LINE__);
+}
+		]]></hook>
+
+		<hook id="pf_change_details_new_section_validation"><![CDATA[
+			if(file_exists($ext_info['path'].'/lang/'.$forum_user['language'].'/'.$ext_info['id'].'.php'))
+				include $ext_info['path'].'/lang/'.$forum_user['language'].'/'.$ext_info['id'].'.php';
+			else
+				include $ext_info['path'].'/lang/English/'.$ext_info['id'].'.php';
+
+			if($section == "bank") {
+				$form = extract_elements(array('note'));
+				if($_POST['req_username'] == $forum_user['username'])
+					$errors[] = $lang_currency['Sending money to yourself error'];
+
+				if(intval($_POST['req_amount']) <= 0)
+					$errors[] = $lang_currency['False amount error'];
+
+				$query = array(
+					'SELECT'	=>	'money-'.intval($_POST['req_amount']).' AS money',
+					'FROM'		=>	'users',
+					'WHERE'		=>	'id = '.$forum_user['id'],
+				);
+				$result = $forum_db->query_build($query) or error(__FILE__, __LINE__);
+				$row = $forum_db->fetch_assoc($result);
+				if($row['money'] < 0)
+					$errors[] = $lang_currency['Not enough money error'];
+
+				$query = array(
+					'SELECT'	=>	'id',
+					'FROM'		=>	'users',
+					'WHERE'		=>	'username = \''.$forum_db->escape($_POST['req_username']).'\'',
+				);
+				$result = $forum_db->query_build($query) or error(__FILE__, __LINE__);
+
+				if($forum_db->num_rows($result) == 0)
+					$errors[]	=	$lang_currency['Non-existing user error'];
+				$row = $forum_db->fetch_assoc($result);
+
+				if(empty($errors)) {
+				
+					$query = array(
+						'UPDATE'	=>	'users',
+						'SET'			=>	'money = (money+'.intval($_POST['req_amount']).')',
+						'WHERE'		=>	'username = \''.$forum_db->escape($_POST['req_username']).'\'',
+					);
+					$forum_db->query_build($query) or error(__FILE__, __LINE__);
+
+					$query = array(
+						'UPDATE'	=>	'users',
+						'SET'			=>	'money = (money-'.intval($_POST['req_amount']).')',
+						'WHERE'		=>	'id = '.$forum_user['id'],
+					);
+					$forum_db->query_build($query) or error(__FILE__, __LINE__);
+					
+					$query = array(
+						'INSERT'	=>	'from_user, to_user, amount, note, date',
+						'INTO'		=>	'transactions',
+						'VALUES'	=>	$forum_user['id'].', '.$row['id'].', '.intval($_POST['req_amount']).', \''.$forum_db->escape($form['note']).'\', NOW()',
+					);
+					$forum_db->query_build($query) or error(__FILE__, __LINE__);
+
+					redirect(forum_link('profile.php?section=bank&id='.$id), $lang_currency['Money transfered']);
+				}
+			}
+		]]></hook>
+
+		<hook id="pf_change_details_new_section"><![CDATA[
+	if (file_exists($ext_info['path'].'/lang/'.$forum_user['language'].'/'.$ext_info['id'].'.php'))
+		include $ext_info['path'].'/lang/'.$forum_user['language'].'/'.$ext_info['id'].'.php';
+	else
+		include $ext_info['path'].'/lang/English/'.$ext_info['id'].'.php';
+
+	if($section == "bank") 
+	{
+		// Setup breadcrumbs
+		$forum_page['crumbs'] = array(
+			array($forum_config['o_board_title'], forum_link($forum_url['index'])),
+			array(sprintf($lang_profile['Users profile'], $user['username']), forum_link($forum_url['user'], $id)),
+			array($lang_profile['Section identity'],forum_link($forum_url['profile_identity'], $id))
+		);
+		// Setup the form
+		$forum_page['group_count'] = $forum_page['item_count'] = $forum_page['fld_count'] = 0;
+		$forum_page['form_action'] = forum_link('profile.php?section=bank&amp;id=$1', $id);
+
+		$forum_page['hidden_fields'] = array(
+			'form_sent'		=> '<input type="hidden" name="form_sent" value="1" />',
+			'csrf_token'	=> '<input type="hidden" name="csrf_token" value="'.generate_form_token($forum_page['form_action']).'" />'
+		);
+
+		if ($forum_user['is_admmod'] && ($forum_user['g_id'] == FORUM_ADMIN || $forum_user['g_mod_rename_users'] == '1'))
+			$forum_page['hidden_fields']['old_username'] = '<input type="hidden" name="old_username" value="'.forum_htmlencode($user['username']).'" />';
+
+		// Does the form have required fields
+		$forum_page['has_required'] = ((($forum_user['is_admmod'] && ($forum_user['g_id'] == FORUM_ADMIN || $forum_user['g_mod_rename_users'] == '1')) || $forum_user['is_admmod']) ? true : false);
+
+		define('FORUM_PAGE', 'profile-bank');
+		require FORUM_ROOT.'header.php';
+
+		// START SUBST - <!-- forum_main -->
+		ob_start();
+?>
+	<div class="main-subhead">
+		<h2 class="hn"><span><?php echo $lang_currency['Bank']; ?></span><span style="float: right;"><?php echo $lang_currency['You have']; ?> <strong><?php echo $forum_user['money']; ?></strong> <?php echo $forum_config['o_currency_name']?></span>
+</h2>
+	</div>
+	<div class="main-content main-frm">
+<?php
+
+	// If there were any errors, show them
+	if (!empty($errors))
+	{
+		$forum_page['errors'] = array();
+			foreach ($errors as $cur_error)
+			$forum_page['errors'][] = '<li class="warn"><span>'.$cur_error.'</span></li>';
+
+		($hook = get_hook('pf_change_details_identity_pre_errors')) ? eval($hook) : null;
+
+?>
+		<div class="ct-box error-box">
+			<h2 class="warn hn"><?php echo $lang_profile['Profile update errors'] ?></h2>
+			<ul class="error-list">
+				<?php echo implode("\n\t\t\t\t", $forum_page['errors'])."\n" ?>
+			</ul>
+		</div>
+<?php
+
+	}
+
+if ($forum_page['has_required']): ?>
+		<div id="req-msg" class="req-warn ct-box error-box">
+			<p class="important"><?php printf($lang_common['Required warn'], '<em>'.$lang_common['Required'].'</em>') ?></p>
+		</div>
+<?php endif; ?>
+		<form class="frm-form" method="post" accept-charset="utf-8" action="<?php echo $forum_page['form_action'] ?>">
+			<div class="hidden">
+				<?php echo implode("\n\t\t\t\t", $forum_page['hidden_fields'])."\n" ?>
+			</div>
+
+			<fieldset class="frm-group group<?php echo ++$forum_page['group_count'] ?>">
+				<legend class="group-legend"><strong><?php echo $lang_common['Required information'] ?></strong></legend>
+				<div class="sf-set set<?php echo ++$forum_page['item_count'] ?>">
+					<div class="sf-box text required">
+						<label for="fld<?php echo ++$forum_page['fld_count'] ?>"><span><?php echo $lang_currency['Send money to user']; ?><em><?php echo $lang_common['Required'] ?></em></span></label><br />
+						<span class="fld-input"><input type="text" id="fld<?php echo $forum_page['fld_count'] ?>" name="req_username" value="<?php if(isset($_POST['req_username'])) echo forum_htmlencode($_POST['req_username']); if(isset($_GET['username'])) echo forum_htmlencode($_GET['username']); ?>" size="35" maxlength="25" /></span>
+					</div>
+				</div>
+
+				<div class="sf-set set<?php echo ++$forum_page['item_count'] ?>">
+					<div class="sf-box text required">
+						<label for="fld<?php echo ++$forum_page['fld_count'] ?>"><span><?php echo $lang_currency['Amount']; ?><em><?php echo $lang_common['Required'] ?></em></span></label><br />
+						<span class="fld-input"><input type="text" id="fld<?php echo $forum_page['fld_count'] ?>" name="req_amount" value="<?php if(isset($_POST['req_amount'])) echo intval($_POST['req_amount']); ?>" size="35" maxlength="80" /></span>
+					</div>
+				</div>
+
+				<div class="sf-set set<?php echo ++$forum_page['item_count'] ?>">
+					<div class="sf-box text required">
+						<label for="fld<?php echo ++$forum_page['fld_count'] ?>"><span><?php echo $lang_currency['Add a note']; ?></span><small><?php echo $lang_currency['Add a note desc'];?></small></label><br />
+						<span class="fld-input"><input type="text" id="fld<?php echo $forum_page['fld_count'] ?>" name="form[note]" value="<?php if(isset($form['note'])) echo htmlspecialchars($form['note']); ?>" size="35" maxlength="80" /></span>
+					</div>
+				</div>
+
+			</fieldset>
+			<div class="frm-buttons">
+				<span class="submit"><input type="submit" name="update" value="Send" /> <?php echo $lang_profile['Instructions'] ?></span>
+			</div>
+		</form>
+</div>
+
+<?php
+$query = array(
+	'SELECT'	=>	't.id, t.amount, s.id AS id_s, s.username AS sender, r.username AS recipient, r.id AS id_r, t.note, UNIX_TIMESTAMP(t.date) AS date',
+	'FROM'		=>	'transactions AS t',
+	'JOINS'		=>	array(
+		array(
+			'LEFT JOIN'	=>	'users AS s',
+			'ON'				=>	's.id = t.from_user',
+		),
+		array(
+			'RIGHT JOIN'	=>	'users AS r',
+			'ON'				=>	'r.id = t.to_user',
+		),
+	),
+	'WHERE'		=>	't.from_user = '.$id.' OR t.to_user = '.$id,
+	'ORDER BY'=>	'date DESC',
+	'LIMIT'	=>	'20',
+);
+$result = $forum_db->query_build($query) or error(__FILE__, __LINE__);
+if($forum_db->num_rows($result) > 0) {
+?>
+<div class="main-content main-frm">
+<table>
+<tr><th><?php echo $lang_currency['Sender']; ?></th><th><?php echo $lang_currency['Recipient']; ?></th><th><?php echo $lang_currency['Amount']; ?></th><th><?php echo $lang_currency['Note']; ?></th><th><?php echo $lang_currency['Date']; ?></th></tr>
+<?php
+while($transaction = $forum_db->fetch_assoc($result)) {
+	echo "<tr>";
+		echo "<td>".(($transaction['id_s'] == $forum_user['id']) ? $transaction['sender'] : "<a href=\"".forum_link('profile.php?id='.$transaction['id_s'])."\">".$transaction['sender'])."</a></td>";
+		echo "<td>".(($transaction['id_r'] == $forum_user['id']) ? $transaction['recipient'] : "<a href=\"".forum_link('profile.php?id='.$transaction['id_r'])."\">".$transaction['recipient'])."</a></td>";
+		echo "<td>".$transaction['amount']."</td>";
+		echo "<td>".(!empty($transaction['note']) ? $transaction['note'] : "-")."</td>";
+		echo "<td>".format_time($transaction['date'])."</td>";
+	echo "</tr>";
+}
+?>
+</table>
+</div>
+<?php
+}
+		$tpl_temp = forum_trim(ob_get_contents());
+		$tpl_main = str_replace('<!-- forum_main -->', $tpl_temp, $tpl_main);
+		ob_end_clean();
+		// END SUBST - <!-- forum_main -->
+
+		require FORUM_ROOT.'footer.php';
+	}
+		]]></hook>
+
+		<hook id="pf_change_details_modify_main_menu"><![CDATA[
+	if (file_exists($ext_info['path'].'/lang/'.$forum_user['language'].'/'.$ext_info['id'].'.php'))
+		include $ext_info['path'].'/lang/'.$forum_user['language'].'/'.$ext_info['id'].'.php';
+	else
+		include $ext_info['path'].'/lang/English/'.$ext_info['id'].'.php';
+	$forum_page['main_menu']['bank'] = '<li'.(($section == 'bank') ? ' class="active"' : '').'><a href="'.forum_link('profile.php?section=bank&id='.$id).'"><span>'.$lang_currency['Bank'].'</span></a></li>';
+		]]></hook>
+
+		<hook id="aop_features_avatars_fieldset_end"><![CDATA[
+	if (file_exists($ext_info['path'].'/lang/'.$forum_user['language'].'/'.$ext_info['id'].'.php'))
+		include $ext_info['path'].'/lang/'.$forum_user['language'].'/'.$ext_info['id'].'.php';
+	else
+		include $ext_info['path'].'/lang/English/'.$ext_info['id'].'.php';
+	// Reset counter
+	$forum_page['group_count'] = $forum_page['item_count'] = 0;
+?>
+
+			<div class="content-head">
+				<h2 class="hn"><span>Currency system</span></h2>
+			</div>
+			<fieldset class="frm-group group<?php echo ++$forum_page['group_count'] ?>">
+				<legend class="group-legend"><span>Bank settings</span></legend>
+				<div class="sf-set set<?php echo ++$forum_page['item_count'] ?>">
+					<div class="sf-box text">
+						<label for="fld<?php echo ++$forum_page['fld_count'] ?>"><span><?php echo $lang_currency['Currency name']; ?></span><small><?php echo $lang_currency['Currency name description']; ?></small></label><br />
+						<span class="fld-input"><input type="text" id="fld<?php echo $forum_page['fld_count'] ?>" name="form[currency_name]" size="35" maxlength="50" value="<?php echo forum_htmlencode($forum_config['o_currency_name']) ?>" /></span>
+					</div>
+				</div>
+				<div class="sf-set set<?php echo ++$forum_page['item_count'] ?>">
+					<div class="sf-box text">
+						<label for="fld<?php echo ++$forum_page['fld_count'] ?>"><span><?php echo $lang_currency['Money per post']; ?></span></label><br />
+						<span class="fld-input"><input type="text" id="fld<?php echo $forum_page['fld_count'] ?>" name="form[money_per_post]" size="6" maxlength="5" value="<?php echo $forum_config['o_money_per_post'] ?>" /></span>
+					</div>
+				</div>
+				<div class="sf-set set<?php echo ++$forum_page['item_count'] ?>">
+					<div class="sf-box text">
+						<label for="fld<?php echo ++$forum_page['fld_count'] ?>"><span><?php echo $lang_currency['Money per reply']; ?></span></label><br />
+						<span class="fld-input"><input type="text" id="fld<?php echo $forum_page['fld_count'] ?>" name="form[money_per_reply]" size="6" maxlength="5" value="<?php echo $forum_config['o_money_per_reply'] ?>" /></span>
+					</div>
+				</div>
+			</fieldset>
+<?php
+		]]></hook>
+
+	</hooks>
+</extension>

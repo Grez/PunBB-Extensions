@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE extension SYSTEM "ext-1.0.dtd">
+
+<!--
+/*
+	Copyright (C) 2010
+	Released under GPL license version 3 or any later version <http://www.gnu.org/licenses/gpl.html>
+	
+	This extension is free software: you can redistribute it and/or modify
+	it under the terms of the GNU General Public License as published by
+	the Free Software Foundation, either version 3 of the License, or
+	(at your option) any later version.
+
+	This extension is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+	GNU General Public License for more details.
+
+	You should have received a copy of the GNU General Public License
+	along with this extension.  If not, see <http://www.gnu.org/licenses/>.
+*/
+-->
+
+<extension engine="1.0">
+	<id>stopforumspam</id>
+	<title>StopForumSpam.com antispam</title>
+	<version>1.1.2</version>
+	<description>Cross-checks registering user's IP adress with StopForumSpam.com database.</description>
+	<author>KeyDog, Grez, Slavok</author>
+	<minversion>1.3.4</minversion>
+	<maxtestedon>1.3.4</maxtestedon>
+	
+	<install>
+		<![CDATA[
+if (!$forum_db->table_exists('stopforumspam'))
+{
+        $schema = array(
+            'FIELDS'    =>    array(
+                'ip'            => array(
+                    'datatype'        =>    'VARCHAR(15)',
+                    'allow_null'    =>    false,
+                    'default'        =>    '\'0.0.0.0\''
+                ),
+                'bot_visit'        => array(
+                    'datatype'        => 'DATETIME',
+                    'allow_null'    => false
+                ),
+                'lastseen'        => array(
+                    'datatype'        => 'DATETIME',
+                    'allow_null'    => false
+                ),
+                'frequency'        => array(
+                    'datatype'        => 'SMALLINT UNSIGNED',
+                    'allow_null'    => false,
+                    'default'        => '0'
+                )
+            ),
+            'PRIMARY KEY'        =>    array('ip')
+        );
+		
+        $forum_db->create_table('stopforumspam', $schema);
+}
+		]]>
+	</install>
+	
+	<uninstall>
+		<![CDATA[
+            $forum_db->drop_table('stopforumspam');
+		]]>
+	</uninstall>
+	
+	<hooks>
+	<hook id="rg_start"><![CDATA[
+if (file_exists($ext_info['path'].'/lang/'.$forum_user['language'].'/'.$ext_info['id'].'.php'))
+	require $ext_info['path'].'/lang/'.$forum_user['language'].'/'.$ext_info['id'].'.php';
+else
+	require $ext_info['path'].'/lang/English/'.$ext_info['id'].'.php';
+	
+$ip = get_remote_address();
+
+$query = array(
+	'SELECT'   => 'ip',
+	'FROM'     => 'stopforumspam',
+	'WHERE'    => 'ip = \''.$ip.'\'',
+	'LIMIT'    => '1'
+);
+$result = $forum_db->query_build($query) or error(__FILE__, __LINE__);
+
+if($forum_db->num_rows($result) > 0) {
+	message(sprintf($lang_stopforumspam['Registration Forbidden'], $ip));
+} else {
+	$url = 'http://www.stopforumspam.com/api?ip='.$ip;
+	$remote_file = get_remote_file($url, 10);
+	if (!defined('FORUM_XML_FUNCTIONS_LOADED'))
+		require FORUM_ROOT.'include/xml.php';
+		
+	$xml = xml_to_array($remote_file["content"]);
+	if($xml["response"]["attributes"]["success"] == "false") {
+		//maybe we could log this somewhere? (email, maybe), but I don't think it's 'that' important
+	} else {
+		if($xml["response"]["appears"] == "yes") {
+			$query = array(
+			   'INSERT'   => 'ip, bot_visit, lastseen, frequency',
+			   'INTO'     => 'stopforumspam',
+			   'VALUES'   => '\''.$ip.'\', NOW(), \''.$xml["response"]["lastseen"].'\', \''.$xml["response"]["frequency"].'\''
+			);
+			$forum_db->query_build($query) or error(__FILE__, __LINE__);
+			
+			message(sprintf($lang_stopforumspam['Registration Forbidden'], $ip));
+		}
+	}
+}
+	]]></hook>
+	<hook id="po_posting_location_selected"><![CDATA[
+if($forum_user['is_guest']) {
+	if (file_exists($ext_info['path'].'/lang/'.$forum_user['language'].'/'.$ext_info['id'].'.php'))
+		require $ext_info['path'].'/lang/'.$forum_user['language'].'/'.$ext_info['id'].'.php';
+	else
+		require $ext_info['path'].'/lang/English/'.$ext_info['id'].'.php';
+		
+	$ip = get_remote_address();
+
+	$query = array(
+		'SELECT'   => 'ip',
+		'FROM'     => 'stopforumspam',
+		'WHERE'    => 'ip = \''.$ip.'\'',
+		'LIMIT'    => '1'
+	);
+	$result = $forum_db->query_build($query) or error(__FILE__, __LINE__);
+
+	if($forum_db->num_rows($result) > 0) {
+		message(sprintf($lang_stopforumspam['Post Forbidden'], $ip));
+	} else {
+		$url = 'http://www.stopforumspam.com/api?ip='.$ip;
+		$remote_file = get_remote_file($url, 10);
+		if (!defined('FORUM_XML_FUNCTIONS_LOADED'))
+			require FORUM_ROOT.'include/xml.php';
+			
+		$xml = xml_to_array($remote_file["content"]);
+		if($xml["response"]["attributes"]["success"] == "false") {
+			//maybe we could log this somewhere? (email, maybe), but I don't think it's 'that' important
+		} else {
+			if($xml["response"]["appears"] == "yes") {
+				$query = array(
+				   'INSERT'   => 'ip, bot_visit, lastseen, frequency',
+				   'INTO'     => 'stopforumspam',
+				   'VALUES'   => '\''.$ip.'\', NOW(), \''.$xml["response"]["lastseen"].'\', \''.$xml["response"]["frequency"].'\''
+				);
+				$forum_db->query_build($query) or error(__FILE__, __LINE__);
+				
+				message(sprintf($lang_stopforumspam['Post Forbidden'], $ip));
+			}
+		}
+	}
+}
+	]]></hook>
+	</hooks>
+</extension>

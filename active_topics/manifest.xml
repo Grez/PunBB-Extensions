@@ -1,0 +1,234 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE extension SYSTEM "ext-1.0.dtd">
+
+<!--
+/*
+	Copyright (C) 2010 Tom "Grez" Bartoň
+	Released under GPL license version 3 or any later version <http://www.gnu.org/licenses/gpl.html>
+	
+	This extension is free software: you can redistribute it and/or modify
+	it under the terms of the GNU General Public License as published by
+	the Free Software Foundation, either version 3 of the License, or
+	(at your option) any later version.
+
+	This extension is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+	GNU General Public License for more details.
+
+	You should have received a copy of the GNU General Public License
+	along with this extension.  If not, see <http://www.gnu.org/licenses/>.
+*/
+-->
+
+<extension engine="1.0">
+	<id>active_topics</id>
+	<title>Active Topics</title>
+	<version>1.1</version>
+	<description>Shows last active topics on the forum index.</description>
+	<author>Grez</author>
+	<minversion>1.3.4</minversion>
+	<maxtestedon>1.3.4</maxtestedon>
+	
+	<install>
+		<![CDATA[
+
+$query = array(
+	'SELECT'	=>	'conf_value',
+	'FROM'		=>	'config',
+	'WHERE'		=>	'conf_name = \'p_active_topics\''
+);
+$result = $forum_db->query_build($query) or error(__FILE__, __LINE__);
+
+if($forum_db->num_rows($result) == 0) {
+	$at_config = array(
+		'INSERT'	=> 'conf_name, conf_value',
+		'INTO'		=> 'config',
+		'VALUES'	=> '\'p_active_topics\', 5'
+	);	
+
+	$forum_db->query_build($at_config) or error(__FILE__, __LINE__);
+}
+		]]>
+	</install>
+	
+	<uninstall>
+		<![CDATA[
+		
+$at_config = array(
+	'DELETE'	=> 'config',
+	'WHERE'		=> 'conf_name=\'p_active_topics\''
+);
+	
+$forum_db->query_build($at_config) or error(__FILE__, __LINE__);		
+		
+		]]>
+	</uninstall>
+	
+	<hooks>
+		<hook id="in_stats_pre_info_output">
+<![CDATA[
+if (file_exists($ext_info['path'].'/lang/'.$forum_user['language'].'/'.$ext_info['id'].'.php')) {
+	include $ext_info['path'].'/lang/'.$forum_user['language'].'/'.$ext_info['id'].'.php';
+} else {
+	include $ext_info['path'].'/lang/English/'.$ext_info['id'].'.php';
+}
+?>
+<div class="main-head">
+	<h2 class="hn"><span><?php echo $lang_active_topics['Active topics']; ?></span></h2>
+</div>
+<?php
+$query = array(
+	'SELECT'	=> 't.id, t.poster, t.subject, t.posted, t.first_post_id, t.last_post, t.last_post_id, t.last_poster, t.num_views, t.num_replies, t.closed, t.sticky, t.moved_to',
+	'FROM'		=> 'topics AS t',
+	'JOINS'		=> array(
+		array(
+			'LEFT JOIN'		=> 'forum_perms AS fp',
+			'ON'			=> '(fp.forum_id=t.forum_id AND fp.group_id='.$forum_user['g_id'].')'
+		)
+	),
+	'WHERE'		=> '(fp.read_forum IS NULL OR fp.read_forum=1) AND t.moved_to IS NULL',
+	'ORDER BY'	=> 't.last_post DESC',
+	'LIMIT'		=> $forum_config['p_active_topics']
+);
+
+// With "has posted" indication
+if (!$forum_user['is_guest'] && $forum_config['o_show_dot'] == '1')
+{
+	$subquery = array(
+		'SELECT'	=> 'COUNT(p.id)',
+		'FROM'		=> 'posts AS p',
+		'WHERE'		=> 'p.poster_id='.$forum_user['id'].' AND p.topic_id=t.id'
+	);
+
+	($hook = get_hook('vf_qr_get_has_posted')) ? eval($hook) : null;
+	$query['SELECT'] .= ', ('.$forum_db->query_build($subquery, true).') AS has_posted';
+}
+
+require FORUM_ROOT.'lang/'.$forum_user['language'].'/forum.php';
+
+$forum_page['item_header'] = array();
+$forum_page['item_header']['subject']['title'] = '<strong class="subject-title">'.$lang_forum['Topics'].'</strong>';
+$forum_page['item_header']['info']['replies'] = '<strong class="info-replies">'.$lang_forum['replies'].'</strong>';
+
+if ($forum_config['o_topic_views'] == '1')
+	$forum_page['item_header']['info']['views'] = '<strong class="info-views">'.$lang_forum['views'].'</strong>';
+
+$forum_page['item_header']['info']['lastpost'] = '<strong class="info-lastpost">'.$lang_forum['last post'].'</strong>';
+?>
+	<div class="main-subhead">
+		<p class="item-summary<?php echo ($forum_config['o_topic_views'] == '1') ? ' forum-views' : ' forum-noview' ?>"><span><?php printf($lang_forum['Forum subtitle'], implode(' ', $forum_page['item_header']['subject']), implode(', ', $forum_page['item_header']['info'])) ?></span></p>
+	</div>
+	
+<div class="main-content main-forum<?php echo ($forum_config['o_topic_views'] == '1') ? ' forum-views' : ' forum-noview' ?>">
+<?php
+
+$forum_page['item_header']['subject']['title'] = '<strong class="subject-title">'.$lang_forum['Topics'].'</strong>';
+
+$forum_page['item_count'] = 0;
+
+$result = $forum_db->query_build($query) or error(__FILE__, __LINE__);
+while($cur_topic = $forum_db->fetch_assoc($result)) {
+		++$forum_page['item_count'];
+
+		// Start from scratch
+		$forum_page['item_subject'] = $forum_page['item_body'] = $forum_page['item_status'] = $forum_page['item_nav'] = $forum_page['item_title'] = $forum_page['item_title_status'] = array();
+
+		if ($forum_config['o_censoring'] == '1')
+			$cur_topic['subject'] = censor_words($cur_topic['subject']);
+
+		$forum_page['item_subject']['starter'] = '<span class="item-starter">'.sprintf($lang_forum['Topic starter'], forum_htmlencode($cur_topic['poster'])).'</span>';
+
+		// Assemble the Topic heading
+
+		// Should we display the dot or not? :)
+		if (!$forum_user['is_guest'] && $forum_config['o_show_dot'] == '1' && $cur_topic['has_posted'] > 0)
+		{
+			$forum_page['item_title']['posted'] = '<span class="posted-mark">'.$lang_forum['You posted indicator'].'</span>';
+			$forum_page['item_status']['posted'] = 'posted';
+		}
+
+		if ($cur_topic['sticky'] == '1')
+		{
+			$forum_page['item_title_status']['sticky'] = '<em class="sticky">'.$lang_forum['Sticky'].'</em>';
+			$forum_page['item_status']['sticky'] = 'sticky';
+		}
+
+		if ($cur_topic['closed'] == '1')
+		{
+			$forum_page['item_title_status']['closed'] = '<em class="closed">'.$lang_forum['Closed'].'</em>';
+			$forum_page['item_status']['closed'] = 'closed';
+		}
+
+		if (!empty($forum_page['item_title_status']))
+			$forum_page['item_title']['status'] = '<span class="item-status">'.sprintf($lang_forum['Item status'], implode(', ', $forum_page['item_title_status'])).'</span>';
+		
+		$forum_page['item_title']['link'] = '<a href="'.forum_link($forum_url['topic'], array($cur_topic['id'], sef_friendly($cur_topic['subject']))).'">'.forum_htmlencode($cur_topic['subject']).'</a>';
+			
+		$forum_page['item_body']['subject']['title'] = '<h3 class="hn"><span class="item-num">'.forum_number_format($forum_page['item_count']).'</span> '.implode(' ', $forum_page['item_title']).'</h3>';
+
+		if (empty($forum_page['item_status']))
+			$forum_page['item_status']['normal'] = 'normal';
+
+		$forum_page['item_pages'] = ceil(($cur_topic['num_replies'] + 1) / $forum_user['disp_posts']);
+
+		if ($forum_page['item_pages'] > 1)
+			$forum_page['item_nav']['pages'] = '<span>'.$lang_forum['Pages'].'&#160;</span>'.paginate($forum_page['item_pages'], -1, $forum_url['topic'], $lang_common['Page separator'], array($cur_topic['id'], sef_friendly($cur_topic['subject'])));
+
+		// Does this topic contain posts we haven't read? If so, tag it accordingly.
+		if (!$forum_user['is_guest'] && $cur_topic['last_post'] > $forum_user['last_visit'] && (!isset($tracked_topics['topics'][$cur_topic['id']]) || $tracked_topics['topics'][$cur_topic['id']] < $cur_topic['last_post']))
+		{
+			$forum_page['item_nav']['new'] = '<em class="item-newposts"><a href="'.forum_link($forum_url['topic_new_posts'], array($cur_topic['id'], sef_friendly($cur_topic['subject']))).'">'.$lang_forum['New posts'].'</a></em>';
+			$forum_page['item_status']['new'] = 'new';
+		}
+
+		if (!empty($forum_page['item_nav']))
+			$forum_page['item_subject']['nav'] = '<span class="item-nav">'.sprintf($lang_forum['Topic navigation'], implode('&#160;&#160;', $forum_page['item_nav'])).'</span>';
+
+		// Assemble the Topic subject
+
+		$forum_page['item_body']['info']['replies'] = '<li class="info-replies"><strong>'.forum_number_format($cur_topic['num_replies']).'</strong> <span class="label">'.(($cur_topic['num_replies'] == 1) ? $lang_forum['reply'] : $lang_forum['replies']).'</span></li>';
+
+		if ($forum_config['o_topic_views'] == '1')
+			$forum_page['item_body']['info']['views'] = '<li class="info-views"><strong>'.forum_number_format($cur_topic['num_views']).'</strong> <span class="label">'.(($cur_topic['num_views'] == 1) ? $lang_forum['view'] : $lang_forum['views']).'</span></li>';
+
+		$forum_page['item_body']['info']['lastpost'] = '<li class="info-lastpost"><span class="label">'.$lang_forum['Last post'].'</span> <strong><a href="'.forum_link($forum_url['post'], $cur_topic['last_post_id']).'">'.format_time($cur_topic['last_post']).'</a></strong> <cite>'.sprintf($lang_forum['by poster'], forum_htmlencode($cur_topic['last_poster'])).'</cite></li>';
+
+		$forum_page['item_body']['subject']['desc'] = '<p>'.implode(' ', $forum_page['item_subject']).'</p>';
+		$forum_page['item_style'] = (($forum_page['item_count'] % 2 != 0) ? ' odd' : ' even').(($forum_page['item_count'] == 1) ? ' main-first-item' : '').((!empty($forum_page['item_status'])) ? ' '.implode(' ', $forum_page['item_status']) : '');
+?>
+		<div id="topic<?php echo $cur_topic['id'] ?>" class="main-item<?php echo $forum_page['item_style'] ?>">
+			<span class="icon <?php echo implode(' ', $forum_page['item_status']) ?>"><!-- --></span>
+			<div class="item-subject">
+				<?php echo implode("\n\t\t\t\t", $forum_page['item_body']['subject'])."\n" ?>
+			</div>
+			<ul class="item-info">
+				<?php echo implode("\n\t\t\t\t", $forum_page['item_body']['info'])."\n" ?>
+			</ul>
+		</div>
+<?php
+	}
+?>
+</div>
+<?php
+]]>
+		</hook>
+		<hook id="aop_setup_pre_topics_per_page">
+<![CDATA[
+if (file_exists($ext_info['path'].'/lang/'.$forum_user['language'].'/'.$ext_info['id'].'.php')) {
+	include $ext_info['path'].'/lang/'.$forum_user['language'].'/'.$ext_info['id'].'.php';
+} else {
+	include $ext_info['path'].'/lang/English/online_today.php';
+}
+?>
+					<div class="sf-set set<?php echo ++$forum_page['item_count'] ?>">
+						<div class="sf-box text">
+							<label for="fld<?php echo ++$forum_page['fld_count'] ?>"><span><?php echo $lang_active_topics['Active topics setting']; ?></span></label><br />
+							<span class="fld-input"><input type="text" id="fld<?php echo $forum_page['fld_count'] ?>" name="form[active_topics]" size="3" maxlength="3" value="<?php echo $forum_config['p_active_topics'] ?>" /></span>
+						</div>
+					</div>
+<?php
+]]>
+		</hook>
+	</hooks>
+</extension>

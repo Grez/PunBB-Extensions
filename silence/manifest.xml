@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE extension SYSTEM "ext-1.0.dtd">
+
+<!--
+/*
+	Copyright (C) 2010 Tom "Grez" Bartoň
+	Released under GPL license version 3 or any later version <http://www.gnu.org/licenses/gpl.html>
+	
+	This extension is free software: you can redistribute it and/or modify
+	it under the terms of the GNU General Public License as published by
+	the Free Software Foundation, either version 3 of the License, or
+	(at your option) any later version.
+
+	This extension is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+	GNU General Public License for more details.
+
+	You should have received a copy of the GNU General Public License
+	along with this extension.  If not, see <http://www.gnu.org/licenses/>.
+*/
+-->
+
+<extension engine="1.0">
+	<id>silence</id>
+	<title>Silence!</title>
+	<version>1.0.0</version>
+	<description>Allows to prevent user writing to forum for X days.</description>
+	<author>Grez</author>
+	<minversion>1.3.4</minversion>
+	<maxtestedon>1.3.4</maxtestedon>
+	
+	<install>
+		<![CDATA[
+$forum_db->add_field('users', 'silence', 'int(10)', false, 0);
+		]]>
+	</install>
+	
+	<uninstall>
+		<![CDATA[
+$forum_db->drop_field('users', 'silence');		
+		]]>
+	</uninstall>
+	
+	<hooks>
+	<hook id="po_form_submitted"><![CDATA[
+	if (file_exists($ext_info['path'].'/lang/'.$forum_user['language'].'/'.$ext_info['id'].'.php')) {
+		include $ext_info['path'].'/lang/'.$forum_user['language'].'/'.$ext_info['id'].'.php';
+	} else {
+		include $ext_info['path'].'/lang/English/'.$ext_info['id'].'.php';
+	}
+	
+	if(time() < $forum_user['silence'] && isset($_GET['tid'])) {
+		redirect(forum_link($forum_url['topic'], $tid), $lang_silence['Silenced'].date($forum_config['o_date_format'].' '.$forum_config['o_time_format'], $forum_user['silence']));
+	} elseif(time() < $forum_user['silence'] && isset($_GET['fid'])) {
+		redirect(forum_link($forum_url['forum'], $fid), $lang_silence['Silenced'].date($forum_config['o_date_format'].' '.$forum_config['o_time_format'], $forum_user['silence']));	
+	}
+	]]></hook>
+	
+	<hook id="vt_modify_page_details"><![CDATA[
+if(time() < $forum_user['silence']) {
+	$forum_user['may_post'] = false;
+}
+	]]></hook>
+	
+	<hook id="vt_pre_header_load"><![CDATA[
+	
+if (file_exists($ext_info['path'].'/lang/'.$forum_user['language'].'/'.$ext_info['id'].'.php')) {
+	include $ext_info['path'].'/lang/'.$forum_user['language'].'/'.$ext_info['id'].'.php';
+} else {
+	include $ext_info['path'].'/lang/English/'.$ext_info['id'].'.php';
+}
+
+if(time() < $forum_user['silence']) {
+	$forum_config['o_quickpost'] = 0;
+	$forum_page['page_post']['posting'] = '<p class="posting">'.$lang_silence['Silenced'].date($forum_config['o_date_format'].' '.$forum_config['o_time_format'], $forum_user['silence']).'</p>';
+}
+
+	]]></hook>
+	<hook id="vf_pre_header_load"><![CDATA[
+	
+if (file_exists($ext_info['path'].'/lang/'.$forum_user['language'].'/'.$ext_info['id'].'.php')) {
+	include $ext_info['path'].'/lang/'.$forum_user['language'].'/'.$ext_info['id'].'.php';
+} else {
+	include $ext_info['path'].'/lang/English/'.$ext_info['id'].'.php';
+}
+
+if(time() < $forum_user['silence']) {
+	$forum_config['o_quickpost'] = 0;
+	$forum_page['page_post']['posting'] = '<p class="posting">'.$lang_silence['Silenced'].date($forum_config['o_date_format'].' '.$forum_config['o_time_format'], $forum_user['silence']).'</p>';
+}
+
+	]]></hook>
+	
+	<hook id="aba_main_output_start"><![CDATA[
+if (file_exists($ext_info['path'].'/lang/'.$forum_user['language'].'/'.$ext_info['id'].'.php')) {
+	include $ext_info['path'].'/lang/'.$forum_user['language'].'/'.$ext_info['id'].'.php';
+} else {
+	include $ext_info['path'].'/lang/English/'.$ext_info['id'].'.php';
+}
+?>
+	<div class="main-subhead">
+		<h2 class="hn"><span><?php echo $lang_silence['Silence someone']; ?></span></h2>
+	</div>
+	<div class="main-content main-frm">
+		<form class="frm-form" method="post" accept-charset="utf-8" action="<?php echo $forum_page['form_action'] ?>">
+			<div class="hidden">
+				<?php echo implode("\n\t\t\t\t", $forum_page['hidden_fields'])."\n" ?>
+			</div>
+			<div class="sf-set set<?php echo ++$forum_page['item_count'] ?>">
+					<div class="sf-box text">
+						<label for="fld<?php echo ++$forum_page['fld_count'] ?>"><span><?php echo $lang_silence['Silence user']?></span></label><br />
+						<span class="fld-input"><input type="text" id="fld<?php echo $forum_page['fld_count'] ?>" name="username" size="25" maxlength="25" /></span>
+					</div>
+					<div class="sf-box text">
+						<label for="fld<?php echo ++$forum_page['fld_count'] ?>"><span><?php echo $lang_silence['Days'];?></span></label><br />
+						<span class="fld-input"><input type="text" id="fld<?php echo $forum_page['fld_count'] ?>" name="days" size="25" maxlength="25" /></span>
+					</div>
+			</div>
+			<div class="frm-buttons">
+				<span class="submit"><input type="submit" name="silence" value=" <?php echo $lang_silence['Silence button'] ?> " /></span>
+			</div>
+			<?php
+
+$query = array(
+	'SELECT'	=>	'u.id, u.username, u.silence',
+	'FROM'		=>	'users AS u',
+	'WHERE'		=>  'UNIX_TIMESTAMP() < u.silence'
+);
+
+$result = $forum_db->query_build($query) or error(__FILE__, __LINE__);
+
+$i = 0;
+if($forum_db->num_rows($result) != 0) {
+	echo "<table>";
+	 echo "<tr><th>".$lang_silence['Username']."</th><th>".$lang_silence['Expire']."</th><th>".$lang_silence['Cancel Silence']."</th></tr>";
+	 while($silence = $forum_db->fetch_assoc($result)) {
+	  echo "<tr class=\"".((++$i%2) ? "odd" : "even")."\">";
+	   echo "<td><a href=\"".forum_link($forum_url['user'], $silence['id'])."\">".$silence['username']."</a></td>";
+	   echo "<td>".date($forum_config['o_date_format'].' '.$forum_config['o_time_format'], $silence['silence'])."</td>";
+	   echo "<td><a href=\"".forum_link($forum_url['admin_bans'].'?cancel_silence='.$silence['id'])."\">".$lang_silence['Cancel Silence']."</a></td>";
+	  echo "</tr>";
+	 }
+	echo "</table>";
+	unset($i);
+}
+			?>
+		</form>	
+	</div>		
+<?php
+	]]></hook>
+	<hook id="aba_start"><![CDATA[
+
+if (file_exists($ext_info['path'].'/lang/'.$forum_user['language'].'/'.$ext_info['id'].'.php')) {
+	include $ext_info['path'].'/lang/'.$forum_user['language'].'/'.$ext_info['id'].'.php';
+} else {
+	include $ext_info['path'].'/lang/English/'.$ext_info['id'].'.php';
+}
+	
+if(isset($_POST['silence']) && intval($_POST['days']) >= 1 && !empty($_POST['username'])) {
+	$silence = time() + intval($_POST['days']) * 86400;
+	
+	$query = array(
+		'UPDATE'	=> 'users',
+		'SET'		=> 'silence='.$silence,
+		'WHERE'		=> 'username=\''.$_POST['username'].'\''
+	);
+		
+	$result = $forum_db->query_build($query) or error(__FILE__, __LINE__);
+	
+	redirect(forum_link($forum_url['admin_bans']), $lang_silence['User silenced']);
+}
+
+if(isset($_GET['cancel_silence']) && intval($_GET['cancel_silence']) >= 1) {
+	$query = array(
+		'UPDATE'	=>	'users',
+		'SET'		=>	'silence=\'0\'',
+		'WHERE'		=>	'id=\''.intval($_GET['cancel_silence']).'\''
+	);
+	$result = $forum_db->query_build($query) or error(__FILE__, __LINE__);
+	
+	redirect(forum_link($forum_url['admin_bans']), $lang_silence['Silence canceled']);
+}
+
+	]]></hook>
+	</hooks>
+</extension>
