@@ -28,7 +28,7 @@
 	<description>Shows last active topics on the forum index.</description>
 	<author>Grez</author>
 	<minversion>1.3.4</minversion>
-	<maxtestedon>1.3.4</maxtestedon>
+	<maxtestedon>1.4.1</maxtestedon>
 	
 	<install>
 		<![CDATA[
